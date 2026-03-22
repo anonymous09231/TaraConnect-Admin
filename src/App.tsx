@@ -166,6 +166,8 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [followerRange, setFollowerRange] = useState<string>('all');
+  const [customMin, setCustomMin] = useState<string>('');
+  const [customMax, setCustomMax] = useState<string>('');
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [error, setError] = useState('');
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; colKey: string } | null>(null);
@@ -230,6 +232,11 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
           case 'micro': return count >= 10000 && count < 100000;
           case 'macro': return count >= 100000 && count < 1000000;
           case 'celebrity': return count >= 1000000;
+          case 'custom': {
+            const min = customMin ? followersToNumber(customMin) : 0;
+            const max = customMax ? followersToNumber(customMax) : Infinity;
+            return count >= min && count <= max;
+          }
           default: return true;
         }
       });
@@ -259,7 +266,7 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
     }
 
     return result;
-  }, [data, searchTerm, sortConfig, followerRange]);
+  }, [data, searchTerm, sortConfig, followerRange, customMin, customMax]);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -327,8 +334,36 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
                 <option value="micro">Micro (10K-100K)</option>
                 <option value="macro">Macro (100K-1M)</option>
                 <option value="celebrity">Celebrity (1M+)</option>
+                <option value="custom">Custom Range</option>
               </select>
             </div>
+
+            <AnimatePresence>
+              {followerRange === 'custom' && (
+                <motion.div 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  className="flex items-center gap-2"
+                >
+                  <input 
+                    type="text" 
+                    placeholder="Min (e.g. 5K)"
+                    value={customMin}
+                    onChange={(e) => setCustomMin(e.target.value)}
+                    className="w-24 sm:w-32 px-3 py-2 bg-tara-light border border-gray-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-tara-teal outline-none transition-all font-medium text-tara-navy"
+                  />
+                  <span className="text-tara-navy/40 text-xs font-bold">-</span>
+                  <input 
+                    type="text" 
+                    placeholder="Max (e.g. 50K)"
+                    value={customMax}
+                    onChange={(e) => setCustomMax(e.target.value)}
+                    className="w-24 sm:w-32 px-3 py-2 bg-tara-light border border-gray-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-tara-teal outline-none transition-all font-medium text-tara-navy"
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <div className="relative flex-1 min-w-[140px]">
               <ChevronDown className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-tara-teal" />
