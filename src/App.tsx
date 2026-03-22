@@ -10,7 +10,6 @@ import {
   Search, 
   Filter, 
   RefreshCw, 
-  Instagram, 
   Table as TableIcon,
   ChevronDown,
   ChevronUp,
@@ -26,14 +25,6 @@ import axios from 'axios';
 
 interface SheetData {
   [key: string]: string;
-}
-
-interface InstagramData {
-  username: string;
-  followers: string;
-  posts: string;
-  loading: boolean;
-  error?: string;
 }
 
 // --- Constants ---
@@ -55,30 +46,6 @@ const normalizeFollowers = (countStr: string): string => {
 
   // Strictly K format: e.g., 2,000,000 -> 2000K, 1,500 -> 1.5K
   return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-};
-
-const extractInstagramUsername = (url: string): string | null => {
-  if (!url) return null;
-  try {
-    const trimmed = url.trim();
-    // Handle full URLs like https://www.instagram.com/username?igsh=...
-    if (trimmed.includes('instagram.com/')) {
-      // Split by 'instagram.com/' and take the second part
-      const afterDomain = trimmed.split('instagram.com/')[1];
-      // The username is between the first '/' and the first '?'
-      // Logic: split by / then by ?
-      const username = afterDomain.split('/')[0].split('?')[0];
-      return username || null;
-    }
-    // Handle @username
-    if (trimmed.startsWith('@')) {
-      return trimmed.slice(1);
-    }
-    // Handle plain username
-    return trimmed || null;
-  } catch (e) {
-    return null;
-  }
 };
 
 const followersToNumber = (countStr: string): number => {
@@ -199,39 +166,10 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [followerRange, setFollowerRange] = useState<string>('all');
-  const [instagramFollowers, setInstagramFollowers] = useState<Record<string, InstagramData>>({});
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [error, setError] = useState('');
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; colKey: string } | null>(null);
   const [editValue, setEditValue] = useState('');
-
-  const fetchAllFollowers = async () => {
-    const usernames = data.map(row => {
-      const instaKey = Object.keys(row).find(k => {
-        const key = k.toLowerCase();
-        return key.includes('instagram') || key.includes('social media url');
-      });
-      const instaUrl = instaKey ? row[instaKey] : '';
-      let username = extractInstagramUsername(instaUrl);
-      
-      if (!username) {
-        const usernameKey = Object.keys(row).find(k => k.toLowerCase() === 'username');
-        if (usernameKey) {
-          username = row[usernameKey];
-        }
-      }
-      return username;
-    }).filter(Boolean) as string[];
-
-    const uniqueUsernames = Array.from(new Set(usernames));
-    
-    // Fetch in batches to avoid rate limiting
-    for (const username of uniqueUsernames) {
-      await fetchFollowers(username);
-      // Small delay between requests
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  };
 
   const fetchData = async () => {
     if (userEmail !== ADMIN_CREDENTIALS.authorizedEmail) {
@@ -265,36 +203,6 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
       setError("Failed to fetch data from Google Sheets. Ensure the Apps Script is deployed as a web app with access set to 'Anyone'.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchFollowers = async (username: string) => {
-    if (!username || instagramFollowers[username]?.loading) return;
-
-    setInstagramFollowers(prev => ({
-      ...prev,
-      [username]: { username, followers: '', posts: '', loading: true }
-    }));
-
-    try {
-      const response = await axios.get(`/api/instagram/followers/${username}`);
-      const normalizedFollowers = normalizeFollowers(response.data.followers);
-      const normalizedPosts = normalizeFollowers(response.data.posts);
-      
-      setInstagramFollowers(prev => ({
-        ...prev,
-        [username]: { 
-          username, 
-          followers: normalizedFollowers, 
-          posts: normalizedPosts,
-          loading: false 
-        }
-      }));
-    } catch (error) {
-      setInstagramFollowers(prev => ({
-        ...prev,
-        [username]: { username, followers: 'Error', posts: '', loading: false, error: 'Failed to fetch' }
-      }));
     }
   };
 
@@ -372,16 +280,6 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
     newData[editingCell.rowIdx][editingCell.colKey] = editValue;
     setData(newData);
     setEditingCell(null);
-  };
-
-  const handleInstagramEdit = (username: string, field: 'followers' | 'posts', newVal: string) => {
-    setInstagramFollowers(prev => ({
-      ...prev,
-      [username]: {
-        ...prev[username],
-        [field]: newVal
-      }
-    }));
   };
 
   const columns = useMemo(() => {
@@ -479,14 +377,6 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
             <p className="text-tara-teal font-medium text-sm sm:text-base">Managing {filteredData.length} influencer profiles</p>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-            <button 
-              onClick={fetchAllFollowers}
-              disabled={loading || data.length === 0}
-              className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-white border border-tara-navy/10 text-tara-navy rounded-xl font-bold hover:bg-tara-light transition-all shadow-sm disabled:opacity-50 active:scale-95 text-sm sm:text-base"
-            >
-              <RefreshCw className="w-4 h-4 text-tara-teal" />
-              Sync All
-            </button>
             <button 
               onClick={fetchData}
               disabled={loading}
