@@ -34,10 +34,8 @@ async function startServer() {
     const { username } = req.params;
     const APIFY_TOKEN = process.env.APIFY_TOKEN || "apify_api_0cGiCnRNq2d34Kdg54IBc8Gxf2TYlr35N1fb";
     
-    // Method 0: Apify (User requested)
+    // Method 0: Apify
     try {
-      console.log(`Attempting Apify fetch for ${username}...`);
-      // Start the run and wait for it to finish (up to 60s)
       const runResponse = await axios.post(
         `https://api.apify.com/v2/acts/apify~instagram-followers-count-scraper/runs?token=${APIFY_TOKEN}&wait=60`,
         {
@@ -54,13 +52,8 @@ async function startServer() {
         const items = datasetResponse.data;
         if (items && items.length > 0) {
           const user = items[0];
-          // The followers-count-scraper might use different field names, 
-          // but usually it's followersCount and postsCount. 
-          // We'll check for common variations.
           const followers = user.followersCount || user.followers || '0';
           const posts = user.postsCount || user.posts || '0';
-          
-          console.log(`Apify success for ${username}: ${followers} followers`);
           return res.json({
             followers: followers.toString(),
             posts: posts.toString()
@@ -76,12 +69,9 @@ async function startServer() {
       const response = await axios.get(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-          'x-ig-app-id': '936619743392459', // Standard Instagram Web App ID
+          'x-ig-app-id': '936619743392459',
           'Accept': '*/*',
           'Accept-Language': 'en-US,en;q=0.9',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-origin',
         }
       });
 
@@ -96,7 +86,7 @@ async function startServer() {
       console.warn(`Instagram Internal API failed for ${username}:`, apiError.message);
     }
 
-    // Method 2: Try a third-party viewer (Picuki) - Often bypasses Instagram blocks
+    // Method 2: Try a third-party viewer (Picuki)
     try {
       const response = await axios.get(`https://www.picuki.com/profile/${username}`, {
         headers: {
@@ -116,7 +106,7 @@ async function startServer() {
 
     // Method 3: Python script (Instaloader)
     try {
-      const { stdout, stderr } = await execAsync(`python3 get_followers.py ${username}`);
+      const { stdout } = await execAsync(`python3 get_followers.py ${username}`);
       if (stdout) {
         const data = JSON.parse(stdout);
         if (!data.error) {
@@ -130,7 +120,7 @@ async function startServer() {
       console.warn(`Python script failed for ${username}:`, pythonError.message);
     }
 
-    // Method 4: Direct HTML Scraping (Last resort)
+    // Method 4: Direct HTML Scraping
     try {
       const response = await axios.get(`https://www.instagram.com/${username}/`, {
         headers: {
