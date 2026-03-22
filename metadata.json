@@ -1,0 +1,5 @@
+{
+  "name": "Remix: Admin Panel \u0026 Instagram Tracker",
+  "description": "An admin panel that fetches data from Google Sheets and tracks Instagram follower counts in real-time.",
+  "requestFramePermissions": []
+}
