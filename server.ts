@@ -1,0 +1,183 @@
+import express from "express";
+import { createServer as createViteServer } from "vite";
+import path from "path";
+import axios from "axios";
+import * as cheerio from "cheerio";
+import { exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
+
+async function startServer() {
+  const app = express();
+  const PORT = 3000;
+
+  app.use(express.json());
+
+  // Proxy route for Google Apps Script to bypass CORS
+  app.get("/api/proxy/sheet", async (req, res) => {
+    const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbzhVUDIo0QKfxKJeuwjrv42Lg1inVvZuTLG6ZMHNL-UBfPCRIuyDFAZayBXs4Y9mUCK0Q/exec";
+    try {
+      const response = await axios.get(GOOGLE_SHEET_URL, {
+        maxRedirects: 5,
+        timeout: 10000
+      });
+      res.json(response.data);
+    } catch (error: any) {
+      console.error("Error proxying Google Sheet request:", error.message);
+      res.status(500).json({ error: "Failed to fetch data from Google Sheets via proxy" });
+    }
+  });
+
+  // API route to fetch Instagram followers and posts
+  app.get("/api/instagram/followers/:username", async (req, res) => {
+    const { username } = req.params;
+    const APIFY_TOKEN = process.env.APIFY_TOKEN || "apify_api_0cGiCnRNq2d34Kdg54IBc8Gxf2TYlr35N1fb";
+    
+    // Method 0: Apify (User requested)
+    try {
+      console.log(`Attempting Apify fetch for ${username}...`);
+      // Start the run and wait for it to finish (up to 60s)
+      const runResponse = await axios.post(
+        `https://api.apify.com/v2/acts/apify~instagram-followers-count-scraper/runs?token=${APIFY_TOKEN}&wait=60`,
+        {
+          "usernames": [username]
+        }
+      );
+
+      if (runResponse.data?.data?.status === 'SUCCEEDED') {
+        const datasetId = runResponse.data.data.defaultDatasetId;
+        const datasetResponse = await axios.get(
+          `https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_TOKEN}`
+        );
+        
+        const items = datasetResponse.data;
+        if (items && items.length > 0) {
+          const user = items[0];
+          // The followers-count-scraper might use different field names, 
+          // but usually it's followersCount and postsCount. 
+          // We'll check for common variations.
+          const followers = user.followersCount || user.followers || '0';
+          const posts = user.postsCount || user.posts || '0';
+          
+          console.log(`Apify success for ${username}: ${followers} followers`);
+          return res.json({
+            followers: followers.toString(),
+            posts: posts.toString()
+          });
+        }
+      }
+    } catch (apifyError: any) {
+      console.warn(`Apify failed for ${username}:`, apifyError.message);
+    }
+
+    // Method 1: Try Instagram's internal Web Profile Info API
+    try {
+      const response = await axios.get(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'x-ig-app-id': '936619743392459', // Standard Instagram Web App ID
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'same-origin',
+        }
+      });
+
+      if (response.data?.data?.user) {
+        const user = response.data.data.user;
+        return res.json({
+          followers: user.edge_followed_by?.count?.toString() || '0',
+          posts: user.edge_owner_to_timeline_media?.count?.toString() || '0'
+        });
+      }
+    } catch (apiError: any) {
+      console.warn(`Instagram Internal API failed for ${username}:`, apiError.message);
+    }
+
+    // Method 2: Try a third-party viewer (Picuki) - Often bypasses Instagram blocks
+    try {
+      const response = await axios.get(`https://www.picuki.com/profile/${username}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        }
+      });
+      const $ = cheerio.load(response.data);
+      const followers = $('.followed_by').text().replace(/[^0-9.kKmMbB]/g, '').trim();
+      const posts = $('.posts_count').text().replace(/[^0-9.kKmMbB]/g, '').trim();
+      
+      if (followers || posts) {
+        return res.json({ followers, posts });
+      }
+    } catch (picukiError: any) {
+      console.warn(`Picuki fallback failed for ${username}:`, picukiError.message);
+    }
+
+    // Method 3: Python script (Instaloader)
+    try {
+      const { stdout, stderr } = await execAsync(`python3 get_followers.py ${username}`);
+      if (stdout) {
+        const data = JSON.parse(stdout);
+        if (!data.error) {
+          return res.json({ 
+            followers: data.followers.toString(), 
+            posts: data.posts.toString() 
+          });
+        }
+      }
+    } catch (pythonError: any) {
+      console.warn(`Python script failed for ${username}:`, pythonError.message);
+    }
+
+    // Method 4: Direct HTML Scraping (Last resort)
+    try {
+      const response = await axios.get(`https://www.instagram.com/${username}/`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        }
+      });
+
+      const $ = cheerio.load(response.data);
+      let followers = '';
+      let posts = '';
+      
+      const description = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content');
+      if (description) {
+        const followersMatch = description.match(/([0-9.,kKmMbB]+)\s*Followers/i);
+        if (followersMatch) followers = followersMatch[1];
+        const postsMatch = description.match(/([0-9.,kKmMbB]+)\s*Posts/i);
+        if (postsMatch) posts = postsMatch[1];
+      }
+
+      if (followers || posts) {
+        return res.json({ followers, posts });
+      }
+      res.status(404).json({ error: "Data not found across all methods" });
+    } catch (fallbackError: any) {
+      res.status(500).json({ error: "Failed to fetch Instagram data" });
+    }
+  });
+
+  // Vite middleware for development
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+startServer();
