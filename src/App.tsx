@@ -15,7 +15,8 @@ import {
   ChevronUp,
   ExternalLink,
   User,
-  Lock
+  Lock,
+  CheckCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -172,6 +173,27 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
   const [error, setError] = useState('');
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; colKey: string } | null>(null);
   const [editValue, setEditValue] = useState('');
+
+  const handleRealtimeVerification = () => {
+    if (data.length === 0) {
+      alert("Please import data first.");
+      return;
+    }
+    
+    const followersKey = Object.keys(data[0]).find(k => {
+      const key = k.toLowerCase();
+      return key.includes('follower') || (key.includes('count') && !key.includes('post'));
+    });
+
+    if (!followersKey) {
+      alert("Followers column not found in the data.");
+      return;
+    }
+
+    const followersList = data.map(row => row[followersKey]);
+    const encodedData = encodeURIComponent(JSON.stringify(followersList));
+    window.location.href = `https://taracnct-ig.netlify.app/?followers=${encodedData}`;
+  };
 
   const fetchData = async () => {
     if (userEmail !== ADMIN_CREDENTIALS.authorizedEmail) {
@@ -412,6 +434,13 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
             <p className="text-tara-teal font-medium text-sm sm:text-base">Managing {filteredData.length} influencer profiles</p>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+            <button 
+              onClick={handleRealtimeVerification}
+              className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-tara-teal text-white rounded-xl font-bold hover:bg-tara-teal/90 transition-all shadow-xl shadow-tara-teal/20 active:scale-95 text-sm sm:text-base"
+            >
+              <CheckCircle className="w-4 h-4" />
+              Realtime Verification
+            </button>
             <button 
               onClick={fetchData}
               disabled={loading}
