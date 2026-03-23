@@ -16,7 +16,9 @@ import {
   ExternalLink,
   User,
   Lock,
-  CheckCircle
+  CheckCircle,
+  Copy,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -173,6 +175,33 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
   const [error, setError] = useState('');
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; colKey: string } | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyInstagramUrls = () => {
+    if (data.length === 0) {
+      alert("Please import data first.");
+      return;
+    }
+
+    const urlKey = Object.keys(data[0]).find(k => {
+      const key = k.toLowerCase();
+      return key.includes('instagram') || key.includes('url') || key.includes('link') || key.includes('handle');
+    });
+
+    if (!urlKey) {
+      alert("Instagram URL column not found in the data.");
+      return;
+    }
+
+    const urls = data.map(row => String(row[urlKey])).join('\n');
+    navigator.clipboard.writeText(urls).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(err => {
+      console.error('Failed to copy: ', err);
+      alert("Failed to copy URLs to clipboard.");
+    });
+  };
 
   const handleRealtimeVerification = () => {
     if (data.length === 0) {
@@ -434,6 +463,13 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
             <p className="text-tara-teal font-medium text-sm sm:text-base">Managing {filteredData.length} influencer profiles</p>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+            <button 
+              onClick={handleCopyInstagramUrls}
+              className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-white text-tara-navy border border-tara-navy/20 rounded-xl font-bold hover:bg-tara-light transition-all shadow-lg shadow-tara-navy/5 active:scale-95 text-sm sm:text-base"
+            >
+              {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-tara-teal" />}
+              {copied ? 'Copied!' : 'Copy Instagram URLs'}
+            </button>
             <button 
               onClick={handleRealtimeVerification}
               className="flex items-center justify-center gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-tara-teal text-white rounded-xl font-bold hover:bg-tara-teal/90 transition-all shadow-xl shadow-tara-teal/20 active:scale-95 text-sm sm:text-base"
