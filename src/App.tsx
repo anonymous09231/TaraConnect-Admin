@@ -178,12 +178,12 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
   const [copied, setCopied] = useState(false);
 
   const handleCopyInstagramUrls = () => {
-    if (data.length === 0) {
+    if (filteredData.length === 0) {
       alert("Please import data first.");
       return;
     }
 
-    const urlKey = Object.keys(data[0]).find(k => {
+    const urlKey = Object.keys(filteredData[0]).find(k => {
       const key = k.toLowerCase();
       return key.includes('instagram') || key.includes('url') || key.includes('link') || key.includes('handle');
     });
@@ -193,7 +193,7 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
       return;
     }
 
-    const urls = data.map(row => String(row[urlKey])).join('\n');
+    const urls = filteredData.map(row => String(row[urlKey])).join('\n');
     navigator.clipboard.writeText(urls).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -204,12 +204,12 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
   };
 
   const handleRealtimeVerification = () => {
-    if (data.length === 0) {
+    if (filteredData.length === 0) {
       alert("Please import data first.");
       return;
     }
     
-    const followersKey = Object.keys(data[0]).find(k => {
+    const followersKey = Object.keys(filteredData[0]).find(k => {
       const key = k.toLowerCase();
       return key.includes('follower') || (key.includes('count') && !key.includes('post'));
     });
@@ -219,7 +219,7 @@ const Dashboard = ({ onLogout, userEmail }: { onLogout: () => void, userEmail: s
       return;
     }
 
-    const followersList = data.map(row => row[followersKey]);
+    const followersList = filteredData.map(row => row[followersKey]);
     const encodedData = encodeURIComponent(JSON.stringify(followersList));
     window.location.href = `https://taracnct-ig.netlify.app/?followers=${encodedData}`;
   };
