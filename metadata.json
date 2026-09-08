@@ -1,5 +1,6 @@
 {
-  "name": "Remix: Admin Panel \u0026 Instagram Tracker",
+  "name": "Remix: Admin Panel & Instagram Tracker",
   "description": "An admin panel that fetches data from Google Sheets and tracks Instagram follower counts in real-time.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

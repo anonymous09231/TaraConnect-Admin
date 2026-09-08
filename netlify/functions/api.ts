@@ -1,117 +1,72 @@
 import express, { Router } from "express";
 import serverless from "serverless-http";
 import axios from "axios";
-import * as cheerio from "cheerio";
 
 const app = express();
 const router = Router();
 
 app.use(express.json());
 
-// Proxy route for Google Apps Script to bypass CORS
+// Helper to convert standard Google Sheet URLs to CSV export format
+function normalizeSheetUrl(inputUrl: string): string {
+  const trimmed = inputUrl.trim();
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match) {
+    const id = match[1];
+    const gidMatch = trimmed.match(/[#?&]gid=([0-9]+)/);
+    const gid = gidMatch ? gidMatch[1] : '0';
+    return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
+  }
+  return trimmed;
+}
+
+// Proxy route for Google Apps Script / Google Sheets to bypass CORS
 router.get("/proxy/sheet", async (req, res) => {
-  const GOOGLE_SHEET_URL = "https://script.google.com/macros/s/AKfycbzhVUDIo0QKfxKJeuwjrv42Lg1inVvZuTLG6ZMHNL-UBfPCRIuyDFAZayBXs4Y9mUCK0Q/exec";
+  const DEFAULT_SHEET_URL = "https://script.google.com/macros/s/AKfycbzhVUDIo0QKfxKJeuwjrv42Lg1inVvZuTLG6ZMHNL-UBfPCRIuyDFAZayBXs4Y9mUCK0Q/exec";
+  const requestedUrl = (req.query.url as string) || process.env.GOOGLE_SHEET_URL || DEFAULT_SHEET_URL;
+  const targetUrl = normalizeSheetUrl(requestedUrl);
+
   try {
-    const response = await axios.get(GOOGLE_SHEET_URL, {
+    const response = await axios.get(targetUrl, {
       maxRedirects: 5,
-      timeout: 10000
+      timeout: 15000,
+      headers: {
+        'Accept': 'text/csv, application/json, text/plain, */*'
+      }
     });
+
+    // Check if Google returned an HTML login page or Apps Script error page instead of data
+    if (typeof response.data === "string") {
+      const raw = response.data.trim();
+      if (raw.includes("<!DOCTYPE") || raw.includes("<html") || raw.includes("ServiceLogin") || raw.includes("accounts.google.com")) {
+        if (raw.includes("ServiceLogin") || raw.includes("accounts.google.com")) {
+          return res.status(403).json({ 
+            error: "Google Sheet is private. In your Google Sheet, click 'Share' and set General Access to 'Anyone with the link can view'.",
+            isPrivateSheet: true 
+          });
+        }
+        if (raw.includes("Script function not found: doGet")) {
+          return res.status(502).json({ 
+            error: "Google Apps Script error: 'doGet' not found. Please paste your direct Google Sheet URL (from your browser address bar) or update the Apps Script code.",
+            isAppsScriptError: true 
+          });
+        }
+        return res.status(502).json({ 
+          error: "Received an HTML page instead of spreadsheet data. If linking a Google Sheet, make sure it is shared as 'Anyone with the link can view'.",
+          isHtmlResponse: true 
+        });
+      }
+    }
+
     res.json(response.data);
   } catch (error: any) {
     console.error("Error proxying Google Sheet request:", error.message);
-    res.status(500).json({ error: "Failed to fetch data from Google Sheets via proxy" });
-  }
-});
-
-// API route to fetch Instagram followers and posts
-router.get("/instagram/followers/:username", async (req, res) => {
-  const { username } = req.params;
-  
-  // Method 1: Try the user's other app (taracnct-ig.netlify.app)
-  try {
-    const response = await axios.get(`https://taracnct-ig.netlify.app/api/instagram/followers/${username}`, {
-      timeout: 10000
-    });
-    if (response.data && (response.data.followers || response.data.posts)) {
-      return res.json(response.data);
-    }
-  } catch (proxyError: any) {
-    console.warn(`Proxy to taracnct-ig failed for ${username}:`, proxyError.message);
-  }
-
-  // Method 2: Try Instagram's internal Web Profile Info API
-  try {
-    const response = await axios.get(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'x-ig-app-id': '936619743392459',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      timeout: 10000
-    });
-
-    if (response.data?.data?.user) {
-      const user = response.data.data.user;
-      return res.json({
-        followers: user.edge_followed_by?.count?.toString() || '0',
-        posts: user.edge_owner_to_timeline_media?.count?.toString() || '0'
-      });
-    }
-  } catch (apiError: any) {
-    console.warn(`Instagram Internal API failed for ${username}:`, apiError.message);
-  }
-
-  // Method 3: Try a third-party viewer (Picuki)
-  try {
-    const response = await axios.get(`https://www.picuki.com/profile/${username}`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-      },
-      timeout: 10000
-    });
-    const $ = cheerio.load(response.data);
-    const followers = $('.followed_by').text().replace(/[^0-9.kKmMbB]/g, '').trim();
-    const posts = $('.posts_count').text().replace(/[^0-9.kKmMbB]/g, '').trim();
-    
-    if (followers || posts) {
-      return res.json({ followers, posts });
-    }
-  } catch (picukiError: any) {
-    console.warn(`Picuki fallback failed for ${username}:`, picukiError.message);
-  }
-
-  // Method 4: Direct HTML Scraping
-  try {
-    const response = await axios.get(`https://www.instagram.com/${username}/`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      },
-      timeout: 10000
-    });
-
-    const $ = cheerio.load(response.data);
-    let followers = '';
-    let posts = '';
-    
-    const description = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content');
-    if (description) {
-      const followersMatch = description.match(/([0-9.,kKmMbB]+)\s*Followers/i);
-      if (followersMatch) followers = followersMatch[1];
-      const postsMatch = description.match(/([0-9.,kKmMbB]+)\s*Posts/i);
-      if (postsMatch) posts = postsMatch[1];
-    }
-
-    if (followers || posts) {
-      return res.json({ followers, posts });
-    }
-    res.status(404).json({ error: "Data not found across all methods" });
-  } catch (fallbackError: any) {
-    res.status(500).json({ error: "Failed to fetch Instagram data" });
+    const message = error.response?.data?.error || error.message || "Failed to fetch data from Google Sheets via proxy";
+    res.status(500).json({ error: message });
   }
 });
 
 app.use("/api", router);
 
 export const handler = serverless(app);
+
